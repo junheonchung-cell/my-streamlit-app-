@@ -1,3 +1,4 @@
+
 import streamlit as st
 import requests
 
@@ -21,6 +22,3 @@ if TMDB_API_KEY:
         st.write(f"📝 줄거리: {movie['overview'][:100]}...")
 else:
     st.info("사이드바에 TMDB API Key를 입력해주세요.")
-
-
-
