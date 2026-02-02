@@ -2,7 +2,7 @@ import streamlit as st
 import requests
 from collections import defaultdict
 
-st.set_page_config(page_title="나와 어울리는 영화는?", page_icon="🎬", layout="centered")
+st.set_page_config(page_title="나와 어울리는 영화는?", page_icon="🎬", layout="wide")
 
 # -----------------------------
 # TMDB 설정
@@ -38,8 +38,7 @@ questions = [
     ("5. 친구 사이에서 나는?", ["듣는 역할", "주도하기", "분위기 메이커", "필요할 때 나타남"]),
 ]
 
-# 각 선택지를 장르 성향으로 매핑(점수 부여)
-# - 한 선택지가 2개 장르에 점수 줄 수도 있어요.
+# 선택지 → 장르 점수 매핑
 choice_to_genres = {
     # Q1
     "집에서 휴식": ["드라마", "로맨스"],
@@ -76,7 +75,10 @@ choice_to_genres = {
 # TMDB 호출 함수
 # -----------------------------
 @st.cache_data(show_spinner=False, ttl=3600)
-def fetch_popular_movies_by_genre(api_key: str, genre_id: int, limit: int = 5):
+def fetch_popular_movies_by_genre(api_key: str, genre_id: int, limit: int = 6):
+    """
+    3열 카드로 보여주기 위해 기본 6개(= 2줄) 가져오도록 설정
+    """
     url = "https://api.themoviedb.org/3/discover/movie"
     params = {
         "api_key": api_key,
@@ -94,9 +96,9 @@ def fetch_popular_movies_by_genre(api_key: str, genre_id: int, limit: int = 5):
 
 def analyze_answers(answers: dict):
     scores = defaultdict(int)
-    matched = defaultdict(list)  # 장르별로 어떤 답이 기여했는지 기록
+    matched = defaultdict(list)
 
-    for q, a in answers.items():
+    for _, a in answers.items():
         if not a:
             continue
         for g in choice_to_genres.get(a, []):
@@ -106,7 +108,7 @@ def analyze_answers(answers: dict):
     if not scores:
         return None, {}, {}
 
-    # 동점 처리: 더 "대표성"이 큰 장르를 우선(필요 시 취향대로 조정 가능)
+    # 동점 시 우선순위
     tie_priority = ["드라마", "로맨스", "코미디", "액션", "SF", "판타지"]
 
     top_score = max(scores.values())
@@ -116,9 +118,8 @@ def analyze_answers(answers: dict):
     chosen_genre = top_genres[0]
     return chosen_genre, dict(scores), dict(matched)
 
-def make_reason(chosen_genre: str, matched: dict, answers: dict):
+def make_reason(chosen_genre: str, matched: dict):
     picks = matched.get(chosen_genre, [])
-    # 중복 제거하면서 최대 2개만 보여주기
     uniq = []
     for x in picks:
         if x not in uniq:
@@ -133,11 +134,11 @@ def make_reason(chosen_genre: str, matched: dict, answers: dict):
 # UI
 # -----------------------------
 st.title("🎬 나와 어울리는 영화는?")
-st.write("간단한 질문 5개로 당신의 영화 취향을 분석하고, TMDB에서 인기 영화를 추천해드려요! 🍿")
+st.write("간단한 질문 5개로 당신의 영화 취향을 분석하고, TMDB에서 인기 영화를 예쁘게 추천해드려요! 🍿")
 
 st.sidebar.header("🔑 TMDB 설정")
 api_key = st.sidebar.text_input("TMDB API Key", type="password", help="TMDB에서 발급받은 API Key를 입력하세요.")
-st.sidebar.caption("※ 키는 앱 실행 중에만 사용되며, 저장하지 않아요(코드 기준).")
+st.sidebar.caption("※ 키는 앱 실행 중에만 사용되며 저장하지 않아요(코드 기준).")
 
 st.divider()
 
@@ -153,30 +154,32 @@ for q, options in questions:
 st.divider()
 
 if st.button("결과 보기", type="primary"):
-    # 기본 검증
+    # 검증
     if not api_key:
         st.error("사이드바에 TMDB API Key를 입력해 주세요.")
         st.stop()
 
     if not all_answered:
-        st.warning("모든 질문에 답하면 결과를 더 정확히 추천할 수 있어요! (5개 모두 선택해 주세요)")
+        st.warning("모든 질문(5개)에 답하면 결과를 더 정확히 추천할 수 있어요!")
         st.stop()
 
-    # 1) 사용자 답변 분석 → 장르 결정
+    # 분석
     chosen_genre, scores, matched = analyze_answers(answers)
     if not chosen_genre:
         st.error("답변을 분석할 수 없어요. 다시 시도해 주세요.")
         st.stop()
 
-    st.subheader("📌 분석 결과")
-    st.write(f"당신에게 어울리는 장르는: **{GENRE_KR_LABEL.get(chosen_genre, chosen_genre)}**")
-    st.info(make_reason(chosen_genre, matched, answers))
+    genre_label = GENRE_KR_LABEL.get(chosen_genre, chosen_genre)
 
-    # 2) TMDB API로 해당 장르 인기 영화 5개 가져오기
+    # 요구사항 1) 결과 제목
+    st.markdown(f"## 🎉 당신에게 딱인 장르는: **{genre_label}**!")
+    st.caption(make_reason(chosen_genre, matched))
+
+    # TMDB 로딩
     genre_id = GENRES[chosen_genre]
     with st.spinner("분석 중... (TMDB에서 영화 불러오는 중)"):
         try:
-            movies = fetch_popular_movies_by_genre(api_key, genre_id, limit=5)
+            movies = fetch_popular_movies_by_genre(api_key, genre_id, limit=6)
         except requests.HTTPError as e:
             st.error(f"TMDB 요청에 실패했어요: {e}")
             st.stop()
@@ -188,31 +191,39 @@ if st.button("결과 보기", type="primary"):
         st.warning("해당 장르에서 영화를 찾지 못했어요. 잠시 후 다시 시도해 주세요.")
         st.stop()
 
-    # 3) 표시: 포스터/제목/평점/줄거리 + 추천 이유
-    st.subheader("🍿 추천 영화 TOP 5")
+    st.divider()
+    st.subheader("🍿 추천 영화")
 
-    for m in movies:
+    # 요구사항 2) 영화 카드 3열
+    cols = st.columns(3)
+
+    for idx, m in enumerate(movies):
+        col = cols[idx % 3]
+
         title = m.get("title") or m.get("name") or "제목 없음"
         rating = m.get("vote_average", 0.0)
         overview = m.get("overview") or "줄거리 정보가 없어요."
         poster_path = m.get("poster_path")
 
-        cols = st.columns([1, 2.2])
-        with cols[0]:
-            if poster_path:
-                st.image(POSTER_BASE + poster_path, use_container_width=True)
-            else:
-                st.caption("포스터 없음")
+        with col:
+            # 간단 카드 스타일
+            with st.container(border=True):
+                # 요구사항 3) 포스터/제목/평점
+                if poster_path:
+                    st.image(POSTER_BASE + poster_path, use_container_width=True)
+                else:
+                    st.write("🖼️ 포스터 없음")
 
-        with cols[1]:
-            st.markdown(f"### {title}")
-            st.write(f"⭐ 평점: **{rating:.1f}**")
-            st.write(overview)
+                st.markdown(f"**{title}**")
+                st.write(f"⭐ 평점: **{rating:.1f}**")
 
-            # 간단 추천 이유(장르 + 사용자 선택 근거)
-            reason = make_reason(chosen_genre, matched, answers)
-            st.markdown(f"**이 영화를 추천하는 이유**: {reason}")
+                # 요구사항 4) 클릭하면 상세 (expander)
+                with st.expander("상세 정보 보기"):
+                    st.write(overview)
+                    st.markdown(
+                        f"**이 영화를 추천하는 이유**: {make_reason(chosen_genre, matched)}"
+                    )
 
-        st.divider()
+
 
 
